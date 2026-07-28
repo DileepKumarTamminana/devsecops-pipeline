@@ -1,0 +1,160 @@
+name: DevSecOps Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Every Monday at 03:00 UTC
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: devsecops-pipeline-demo
+
+jobs:
+  # ---------------------------------------------------------------------
+  # SAST: Static Application Security Testing with GitHub CodeQL
+  # ---------------------------------------------------------------------
+  codeql:
+    name: SAST - CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    strategy:
+      matrix:
+        language: ["python"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # ---------------------------------------------------------------------
+  # SCA: Software Composition Analysis on the filesystem / dependencies
+  # ---------------------------------------------------------------------
+  trivy-filesystem-scan:
+    name: SCA - Trivy Filesystem Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          severity: "HIGH,CRITICAL"
+          exit-code: "1"
+          ignore-unfixed: true
+          format: "sarif"
+          output: "trivy-fs-results.sarif"
+
+      - name: Upload Trivy filesystem scan results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: "trivy-fs-results.sarif"
+          category: "trivy-filesystem"
+
+  # ---------------------------------------------------------------------
+  # Secret scanning with Gitleaks
+  # ---------------------------------------------------------------------
+  gitleaks:
+    name: Secret Scanning - Gitleaks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------
+  # Dependency Review: flags vulnerable/incompatible dependencies on PRs
+  # ---------------------------------------------------------------------
+  dependency-review:
+    name: SCA - Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
+  # ---------------------------------------------------------------------
+  # Container scan: build the Docker image, then scan it with Trivy
+  # ---------------------------------------------------------------------
+  trivy-image-scan:
+    name: Container Scan - Trivy Image Scan
+    runs-on: ubuntu-latest
+    needs: [trivy-filesystem-scan]
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          load: true
+
+      - name: Run Trivy image scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: "${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          scan-type: "image"
+          severity: "HIGH,CRITICAL"
+          exit-code: "1"
+          ignore-unfixed: true
+          format: "sarif"
+          output: "trivy-image-results.sarif"
+
+      - name: Upload Trivy image scan results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: "trivy-image-results.sarif"
+          category: "trivy-image"
