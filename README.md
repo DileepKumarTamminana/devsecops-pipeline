@@ -15,7 +15,7 @@ A small Flask application wired end-to-end with a **complete DevSecOps CI/CD pip
 
 `devsecops-pipeline-demo` pairs a tiny, deliberately simple Flask API with a security-first GitHub Actions pipeline that runs on every push, every pull request into `main`, and on a weekly schedule. The goal is to show what "shift-left" security looks like in practice: code, dependencies, secrets, and the final container image are all checked automatically, before anything reaches production.
 
-This is a portfolio project by **Dileep Kumar Tamminana**, built to demonstrate practical DevSecOps engineering: pipeline design, tool integration, and secure-by-default configuration (non-root containers, pinned base images, fail-the-build security gates).
+This is a portfolio project by **Dileep Kumar Tamminana**, built to demonstrate practical DevSecOps engineering: pipeline design, tool integration, and secure-by-default configuration (non-root containers, pinned base images, and security scanning surfaced in GitHub's Security tab).
 
 ## What This Demonstrates
 
@@ -27,7 +27,7 @@ This is a portfolio project by **Dileep Kumar Tamminana**, built to demonstrate 
 | **Dependency review** | [GitHub Dependency Review Action](https://github.com/actions/dependency-review-action) | `dependency-review` job — runs on pull requests |
 | **Container image scanning** | Trivy image scan | `trivy-image-scan` job — builds [`Dockerfile`](Dockerfile), then scans the resulting image |
 
-All scan results (CodeQL, Trivy filesystem, Trivy image) are uploaded as SARIF to GitHub's **Security** tab, so findings show up alongside native code scanning alerts. Filesystem and image scans fail the build on `HIGH` or `CRITICAL` severity findings.
+All scan results (CodeQL, Trivy filesystem, Trivy image) are uploaded as SARIF to GitHub's **Security** tab, so findings show up alongside native code scanning alerts. The Trivy scans run in report-only mode so the pipeline stays green; flip each Trivy step's `exit-code` to `1` to fail the build on `HIGH`/`CRITICAL` findings.
 
 ## Architecture
 
@@ -44,7 +44,7 @@ All scan results (CodeQL, Trivy filesystem, Trivy image) are uploaded as SARIF t
           ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
           │   SAST: CodeQL   │  │  SCA: Trivy (fs)  │  │  Secret Scanning │
           │  init + analyze  │  │  HIGH,CRITICAL     │  │     Gitleaks     │
-          │   (app.py)       │  │   fails the build  │  │  full git history│
+          │   (app.py)       │  │  → Security tab    │  │  full git history│
           └────────┬─────────┘  └─────────┬─────────┘  └─────────┬────────┘
                    │                      │                      │
                    │                      ▼                      │
@@ -63,7 +63,7 @@ All scan results (CodeQL, Trivy filesystem, Trivy image) are uploaded as SARIF t
                    │           ┌─────────────────────┐            │
                    │           │ Trivy Image Scan      │            │
                    │           │ HIGH,CRITICAL         │            │
-                   │           │ fails the build       │            │
+                   │           │ → Security tab        │            │
                    │           └──────────┬──────────┘            │
                    │                      │                       │
                    └──────────────────────┼───────────────────────┘
@@ -157,7 +157,7 @@ devsecops-pipeline-demo/
 
 ## Security
 
-This project follows a "fail closed" approach: any `HIGH` or `CRITICAL` finding from the SCA or container scan stages fails the pipeline, blocking the merge/deploy. The container image runs as a dedicated non-root user (`appuser`), uses a pinned base image tag (`python:3.12.4-slim`) rather than a floating tag, and installs dependencies from a pinned `requirements.txt`.
+The Trivy scan stages run in report-only mode (findings are uploaded to the **Security** tab); setting each step's `exit-code` to `1` turns this into a fail-closed gate that blocks the merge/deploy on any `HIGH`/`CRITICAL` finding. The container image runs as a dedicated non-root user (`appuser`), uses a pinned base image tag (`python:3.12.4-slim`) rather than a floating tag, and installs dependencies from a pinned `requirements.txt`.
 
 If you discover a security issue in this repository, please open an issue or reach out directly rather than filing a public exploit — this is a demo/portfolio project, not a production system, but responsible disclosure is still appreciated.
 
