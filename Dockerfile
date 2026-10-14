@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- Build stage: install dependencies into an isolated prefix ----
-FROM python:3.12.4-slim AS builder
+FROM python:3.14.8-slim AS builder
 
 WORKDIR /build
 
@@ -14,7 +14,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ---- Runtime stage: minimal image with only what's needed to run ----
-FROM python:3.12.4-slim AS runtime
+FROM python:3.14.8-slim AS runtime
 
 # Metadata
 LABEL org.opencontainers.image.title="devsecops-pipeline-demo" \
